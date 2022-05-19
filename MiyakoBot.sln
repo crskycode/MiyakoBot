@@ -5,13 +5,21 @@ VisualStudioVersion = 17.2.32516.85
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiyakoBot.Console", "MiyakoBot.Console\MiyakoBot.Console.csproj", "{D2BB909F-0C39-4168-85CA-DD18CB51E230}"
 	ProjectSection(ProjectDependencies) = postProject
+		{7B4B6548-69D5-4F2A-A03E-5F245C4E2214} = {7B4B6548-69D5-4F2A-A03E-5F245C4E2214}
 		{81481E1B-01E9-4315-A5EB-1A5E1F2BEB6D} = {81481E1B-01E9-4315-A5EB-1A5E1F2BEB6D}
 		{F1F759B7-3A06-40C1-9757-CB473A4A15DE} = {F1F759B7-3A06-40C1-9757-CB473A4A15DE}
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MiyakoBot.Adapter", "MiyakoBot.MiraiWebSocketAdapter\MiyakoBot.Adapter.csproj", "{81481E1B-01E9-4315-A5EB-1A5E1F2BEB6D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiyakoBot.Adapter", "MiyakoBot.MiraiWebSocketAdapter\MiyakoBot.Adapter.csproj", "{81481E1B-01E9-4315-A5EB-1A5E1F2BEB6D}"
+	ProjectSection(ProjectDependencies) = postProject
+		{63E73B05-6A08-4C83-A828-F69C4DC6AC9D} = {63E73B05-6A08-4C83-A828-F69C4DC6AC9D}
+	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MiyakoBot.Http", "MiyakoBot.Http\MiyakoBot.Http.csproj", "{F1F759B7-3A06-40C1-9757-CB473A4A15DE}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiyakoBot.Http", "MiyakoBot.Http\MiyakoBot.Http.csproj", "{F1F759B7-3A06-40C1-9757-CB473A4A15DE}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiyakoBot.Utility", "MiyakoBot.Utility\MiyakoBot.Utility.csproj", "{7B4B6548-69D5-4F2A-A03E-5F245C4E2214}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiyakoBot.MessageHandler", "MiyakoBot.MessageHandler\MiyakoBot.MessageHandler.csproj", "{63E73B05-6A08-4C83-A828-F69C4DC6AC9D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -31,6 +39,14 @@ Global
 		{F1F759B7-3A06-40C1-9757-CB473A4A15DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F1F759B7-3A06-40C1-9757-CB473A4A15DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F1F759B7-3A06-40C1-9757-CB473A4A15DE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7B4B6548-69D5-4F2A-A03E-5F245C4E2214}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7B4B6548-69D5-4F2A-A03E-5F245C4E2214}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7B4B6548-69D5-4F2A-A03E-5F245C4E2214}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7B4B6548-69D5-4F2A-A03E-5F245C4E2214}.Release|Any CPU.Build.0 = Release|Any CPU
+		{63E73B05-6A08-4C83-A828-F69C4DC6AC9D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{63E73B05-6A08-4C83-A828-F69C4DC6AC9D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{63E73B05-6A08-4C83-A828-F69C4DC6AC9D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{63E73B05-6A08-4C83-A828-F69C4DC6AC9D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

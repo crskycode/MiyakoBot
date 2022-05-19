@@ -8,6 +8,6 @@ namespace MiyakoBot.Adapter
 {
     public interface IAdapter
     {
-        void Run();
+        Task RunAsync(CancellationToken cancellationToken);
     }
 }
