@@ -12,31 +12,29 @@ namespace MiyakoBot.Adapter
 {
     internal class MiraiSession
     {
-        public string Host { get; set; } = "localhost";
-        public ushort Port { get; set; } = 8080;
-        public string VerifyKey { get; set; } = string.Empty;
-        public string QQ { get; set; } = string.Empty;
         public string Key { get; set; } = string.Empty;
 
         readonly ILogger<MiraiSession> _logger;
         readonly IHttpClient _httpClient;
+        readonly MiraiSessionSettings _settings;
 
-        public MiraiSession(ILoggerFactory loggerFactory, IHttpClient httpClient)
+        public MiraiSession(ILogger<MiraiSession> logger, IHttpClient httpClient, MiraiSessionSettings settings)
         {
-            _logger = loggerFactory.CreateLogger<MiraiSession>();
+            _logger = logger;
             _httpClient = httpClient;
+            _settings = settings;
         }
 
         Uri GetHttpUri(string path)
         {
-            return new Uri($"http://{Host}:{Port}/{path}");
+            return new Uri($"http://{_settings.Host}:{_settings.Port}/{path}");
         }
 
         public async Task Open()
         {
             var json = new JsonObject
             {
-                ["verifyKey"] = VerifyKey
+                ["verifyKey"] = _settings.VerifyKey
             };
 
             var response = await _httpClient.PostJsonAsync(GetHttpUri("verify"), json);
@@ -65,7 +63,7 @@ namespace MiyakoBot.Adapter
             var json = new JsonObject
             {
                 ["sessionKey"] = Key,
-                ["qq"] = QQ
+                ["qq"] = _settings.QQ
             };
 
             var response = await _httpClient.PostJsonAsync(GetHttpUri("bind"), json);
@@ -85,7 +83,7 @@ namespace MiyakoBot.Adapter
             var json = new JsonObject
             {
                 ["sessionKey"] = Key,
-                ["qq"] = QQ
+                ["qq"] = _settings.QQ
             };
 
             var response = await _httpClient.PostJsonAsync(GetHttpUri("release"), json);

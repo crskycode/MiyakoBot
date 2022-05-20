@@ -5,6 +5,7 @@ VisualStudioVersion = 17.2.32516.85
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiyakoBot.Console", "MiyakoBot.Console\MiyakoBot.Console.csproj", "{D2BB909F-0C39-4168-85CA-DD18CB51E230}"
 	ProjectSection(ProjectDependencies) = postProject
+		{63E73B05-6A08-4C83-A828-F69C4DC6AC9D} = {63E73B05-6A08-4C83-A828-F69C4DC6AC9D}
 		{7B4B6548-69D5-4F2A-A03E-5F245C4E2214} = {7B4B6548-69D5-4F2A-A03E-5F245C4E2214}
 		{81481E1B-01E9-4315-A5EB-1A5E1F2BEB6D} = {81481E1B-01E9-4315-A5EB-1A5E1F2BEB6D}
 		{F1F759B7-3A06-40C1-9757-CB473A4A15DE} = {F1F759B7-3A06-40C1-9757-CB473A4A15DE}
@@ -19,7 +20,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiyakoBot.Http", "MiyakoBot
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiyakoBot.Utility", "MiyakoBot.Utility\MiyakoBot.Utility.csproj", "{7B4B6548-69D5-4F2A-A03E-5F245C4E2214}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiyakoBot.MessageHandler", "MiyakoBot.MessageHandler\MiyakoBot.MessageHandler.csproj", "{63E73B05-6A08-4C83-A828-F69C4DC6AC9D}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MiyakoBot.Message", "MiyakoBot.Message\MiyakoBot.Message.csproj", "{63E73B05-6A08-4C83-A828-F69C4DC6AC9D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

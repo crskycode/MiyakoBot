@@ -1,9 +1,12 @@
 ﻿using Microsoft.AspNetCore.Mvc.ApplicationParts;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MiyakoBot.Adapter;
 using MiyakoBot.Http;
+using MiyakoBot.MessageHandler;
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,17 +19,29 @@ namespace MiyakoBot.Console
             // Create services
             var services = new ServiceCollection();
 
+            // Load settings file
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.json", false)
+                .Build();
+
             // Configure settings file
-            services.AddConfiguration("appsettings.json");
+            services.AddConfiguration(configuration);
 
             // Configure logging
             services.AddLogging(logging => {
+                logging.AddConfiguration(configuration.GetSection("Logging"));
                 logging.AddFile();
                 logging.AddConsole();
             });
 
+            // Create application part manager for message handlers
+            var apm = new ApplicationPartManager();
+
+            // Add handler dlls
+
             // Configure application part manager
-            services.AddSingleton(typeof(ApplicationPartManager));
+            services.AddSingleton(typeof(ApplicationPartManager), apm);
 
             // Configure Http clients
             services.AddSingleton(typeof(IDefaultHttpClient), typeof(DefaultHttpClient));
