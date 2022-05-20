@@ -1,49 +1,40 @@
-﻿using Microsoft.AspNetCore.Mvc.ApplicationParts;
+﻿using System.Net.WebSockets;
+using System.Reflection;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MiyakoBot.Http;
 using MiyakoBot.Message;
-using System.Net.WebSockets;
-using System.Reflection;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace MiyakoBot.Adapter
 {
     public class MiraiWebSocketAdapter : IAdapter
     {
-        readonly IServiceProvider _serviceProvider;
         readonly ILogger<MiraiWebSocketAdapter> _logger;
         readonly MiraiWebSocketAdapterSettings _settings;
         readonly IHttpClient _httpClient;
+        readonly IServiceProvider _applicationServiceProvider;
+        readonly MessageHandlerTypeCollection _messageHandlers;
         readonly MiraiSession _session;
         readonly ClientWebSocket _socket;
-        readonly ApplicationPartManager _applicationPartManager;
-        readonly List<object> _messageHandlers;
-        readonly Dictionary<string, EventTypes> _stringToEventTypeDict;
-        readonly Dictionary<string, MessageTypes> _stringToMessageTypeDict;
 
         public MiraiWebSocketAdapter(
-            IServiceProvider serviceProvider,
-            ILoggerFactory loggerFactory,
             ILogger<MiraiWebSocketAdapter> logger,
             IConfiguration configuration,
+            MessageHandlerTypeCollection messageHandlers,
             IDefaultHttpClient httpClient,
-            ApplicationPartManager applicationPartManager)
+            IServiceProvider applicationServiceProvider)
         {
-            _serviceProvider = serviceProvider;
             _logger = logger;
             _settings = configuration.GetSection(nameof(MiraiWebSocketAdapter)).Get<MiraiWebSocketAdapterSettings>();
             _httpClient = httpClient;
-            _applicationPartManager = applicationPartManager;
-            _messageHandlers = new();
-            _stringToEventTypeDict = new();
-            _stringToMessageTypeDict = new();
+            _applicationServiceProvider = applicationServiceProvider;
+            _messageHandlers = messageHandlers;
 
-            // Create session object
-            var sessionLogger = loggerFactory.CreateLogger<MiraiSession>();
+            var sessionLogger = applicationServiceProvider.GetRequiredService<ILogger<MiraiSession>>();
             var sessionSettings = new MiraiSessionSettings
             {
                 Host = _settings.HttpHost,
@@ -51,92 +42,15 @@ namespace MiyakoBot.Adapter
                 VerifyKey = _settings.VerifyKey,
                 QQ = _settings.QQ
             };
-            _session = new MiraiSession(sessionLogger, httpClient, sessionSettings);
+            _session = new MiraiSession(sessionLogger, _httpClient, sessionSettings);
 
-            // Create WebSocket object
             _socket = new ClientWebSocket();
             _socket.Options.KeepAliveInterval = TimeSpan.FromMinutes(2);
-
-            // Find all message handlers and set up mappings
-            PrepareMessageHandlers();
-            PrepareMessageTypes();
         }
 
         Uri GetWsConnectionUri(string sessionKey)
         {
             return new Uri($"ws://{_settings.WsHost}:{_settings.WsPort}/all?verifyKey={_settings.VerifyKey}&sessionKey={sessionKey}&qq={_settings.QQ}");
-        }
-
-        void PrepareMessageHandlers()
-        {
-            var feature = new MessageHandlerFeature();
-
-            _applicationPartManager.PopulateFeature(feature);
-
-            foreach (var type in feature.Handlers)
-            {
-                var handler = _serviceProvider.GetService(type);
-
-                if (handler != null)
-                {
-                    _messageHandlers.Add(handler);
-                }
-            }
-        }
-
-        void PrepareMessageTypes()
-        {
-            var eventTypeInfo = typeof(EventTypes);
-
-            if (eventTypeInfo.IsEnum)
-            {
-                var fields = eventTypeInfo.GetFields(BindingFlags.Public | BindingFlags.Static);
-
-                foreach (var field in fields)
-                {
-                    if (field.IsLiteral)
-                    {
-                        var value = (EventTypes)field.GetRawConstantValue()!;
-                        _stringToEventTypeDict.Add(field.Name, value);
-                    }
-                }
-            }
-
-            var messageTypeInfo = typeof(MessageTypes);
-
-            if (messageTypeInfo.IsEnum)
-            {
-                var fields = messageTypeInfo.GetFields(BindingFlags.Public | BindingFlags.Static);
-
-                foreach (var field in fields)
-                {
-                    if (field.IsLiteral)
-                    {
-                        var value = (MessageTypes)field.GetRawConstantValue()!;
-                        _stringToMessageTypeDict.Add(field.Name, value);
-                    }
-                }
-            }
-        }
-
-        EventTypes GetEventTypeFromString(string type)
-        {
-            if (_stringToEventTypeDict.TryGetValue(type, out EventTypes eventType))
-            {
-                return eventType;
-            }
-
-            return EventTypes.None;
-        }
-
-        MessageTypes GetMessageTypeFromString(string type)
-        {
-            if (_stringToMessageTypeDict.TryGetValue(type, out MessageTypes messageType))
-            {
-                return messageType;
-            }
-
-            return MessageTypes.None;
         }
 
         void HandleConnectionMessage(JsonObject dataObject)
@@ -155,88 +69,100 @@ namespace MiyakoBot.Adapter
             }
         }
 
-        void HandleBotMessage(JsonObject dataObject, CancellationToken cancellationToken)
+        void DispatchBotMessage(MessageTypes type, JsonObject dataObject, CancellationToken cancellationToken)
         {
-            var botMessageType = (string?)dataObject["type"];
-
-            if (string.IsNullOrEmpty(botMessageType))
+            foreach (var handlerType in _messageHandlers)
             {
-                _logger.LogError("Message type is empty.");
-                return;
-            }
+                var methods = handlerType.GetMethods();
 
-            var eventType = GetEventTypeFromString(botMessageType);
-
-            if (eventType != EventTypes.None)
-            {
-                foreach (var handler in _messageHandlers)
+                foreach (var method in methods)
                 {
-                    var type = handler.GetType();
-                    var methods = type.GetMethods();
+                    var attribute = method.GetCustomAttribute<MessageAttribute>();
 
-                    foreach (var method in methods)
+                    if (attribute != null && attribute.Type == type)
                     {
-                        var attribute = method.GetCustomAttribute<EventAttribute>();
+                        _logger.LogDebug("Invoke message handler: {}.{}", handlerType.FullName, method.Name);
 
-                        if (attribute != null && attribute.Type == eventType)
-                        {
-                            _logger.LogDebug("Invoke event handler: {}.{}", method.ReflectedType!.FullName, method.Name);
-
-                            Task.Run(() => {
-                                try
-                                {
-                                    var parameters = new object[] { dataObject, cancellationToken };
-                                    method.Invoke(handler, parameters);
-                                }
-                                catch (Exception e)
-                                {
-                                    _logger.LogError(e, "Failed to invoke event handler.");
-                                }
-                            }, cancellationToken);
-                        }
+                        Task.Run(() => {
+                            try
+                            {
+                                var obj = _applicationServiceProvider.GetRequiredService(handlerType);
+                                var args = new object[] { dataObject, cancellationToken };
+                                method.Invoke(obj, args);
+                            }
+                            catch (Exception e)
+                            {
+                                _logger.LogError(e, "Failed to invoke message handler.");
+                            }
+                        }, cancellationToken);
                     }
                 }
-
-                return;
-            }
-
-            var messageType = GetMessageTypeFromString(botMessageType);
-
-            if (messageType != MessageTypes.None)
-            {
-                foreach (var handler in _messageHandlers)
-                {
-                    var type = handler.GetType();
-                    var methods = type.GetMethods();
-
-                    foreach (var method in methods)
-                    {
-                        var attribute = method.GetCustomAttribute<MessageAttribute>();
-
-                        if (attribute != null && attribute.Type == messageType)
-                        {
-                            _logger.LogDebug("Invoke message handler: {}.{}", method.ReflectedType!.FullName, method.Name);
-
-                            Task.Run(() => {
-                                try
-                                {
-                                    var parameters = new object[] { dataObject, cancellationToken };
-                                    method.Invoke(handler, parameters);
-                                }
-                                catch (Exception e)
-                                {
-                                    _logger.LogError(e, "Failed to invoke message handler.");
-                                }
-                            }, cancellationToken);
-                        }
-                    }
-                }
-
-                return;
             }
         }
 
-        void DispatchMessageAsync(JsonObject message, CancellationToken cancellationToken)
+        void DispatchBotEvent(EventTypes type, JsonObject dataObject, CancellationToken cancellationToken)
+        {
+            foreach (var handlerType in _messageHandlers)
+            {
+                var methods = handlerType.GetMethods();
+
+                foreach (var method in methods)
+                {
+                    var attribute = method.GetCustomAttribute<EventAttribute>();
+
+                    if (attribute != null && attribute.Type == type)
+                    {
+                        _logger.LogDebug("Invoke event handler: {}.{}", handlerType.FullName, method.Name);
+
+                        Task.Run(() => {
+                            try
+                            {
+                                var obj = _applicationServiceProvider.GetRequiredService(handlerType);
+                                var args = new object[] { dataObject, cancellationToken };
+                                method.Invoke(obj, args);
+                            }
+                            catch (Exception e)
+                            {
+                                _logger.LogError(e, "Failed to invoke event handler.");
+                            }
+                        }, cancellationToken);
+                    }
+                }
+            }
+        }
+
+        void HandleMessage(JsonObject dataObject, CancellationToken cancellationToken)
+        {
+            var typeString = (string?)dataObject["type"];
+
+            if (string.IsNullOrEmpty(typeString))
+            {
+                _logger.LogError("Missing value of message type.");
+                return;
+            }
+
+            if (Enum.TryParse<MessageTypes>(typeString, out var messageType))
+            {
+                if (messageType != MessageTypes.None)
+                {
+                    DispatchBotMessage(messageType, dataObject, cancellationToken);
+                }
+                return;
+            }
+
+            if (Enum.TryParse<EventTypes>(typeString, out var eventType))
+            {
+                if (eventType != EventTypes.None)
+                {
+                    DispatchBotEvent(eventType, dataObject, cancellationToken);
+                }
+                return;
+            }
+
+            _logger.LogWarning("Unhandled message type: {}", typeString);
+        }
+
+        void DispatchMessage(JsonObject message, CancellationToken cancellationToken)
         {
             try
             {
@@ -267,7 +193,7 @@ namespace MiyakoBot.Adapter
 
                 if (dataObject.ContainsKey("type"))
                 {
-                    HandleBotMessage(dataObject, cancellationToken);
+                    HandleMessage(dataObject, cancellationToken);
                     return;
                 }
             }
@@ -277,7 +203,7 @@ namespace MiyakoBot.Adapter
             }
         }
 
-        async Task ReadSocketAsync(CancellationToken cancellationToken)
+        async Task ReceiveAsync(CancellationToken cancellationToken)
         {
             var buffer = new List<byte>(ushort.MaxValue);
             var block = new byte[ushort.MaxValue];
@@ -315,7 +241,7 @@ namespace MiyakoBot.Adapter
 
                     if (jsonObject != null)
                     {
-                        DispatchMessageAsync(jsonObject.AsObject(), cancellationToken);
+                        DispatchMessage(jsonObject.AsObject(), cancellationToken);
                     }
                 }
                 catch (JsonException e)
@@ -339,7 +265,7 @@ namespace MiyakoBot.Adapter
 
                 await _socket.ConnectAsync(GetWsConnectionUri(_session.Key), cancellationToken);
 
-                await ReadSocketAsync(cancellationToken);
+                await ReceiveAsync(cancellationToken);
 
                 await _socket.CloseAsync(WebSocketCloseStatus.NormalClosure, string.Empty, cancellationToken);
             }

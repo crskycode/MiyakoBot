@@ -26,6 +26,7 @@
     <ProjectReference Include="..\MiyakoBot.Http\MiyakoBot.Http.csproj" />
     <ProjectReference Include="..\MiyakoBot.Message\MiyakoBot.Message.csproj" />
     <ProjectReference Include="..\MiyakoBot.MiraiWebSocketAdapter\MiyakoBot.Adapter.csproj" />
+    <ProjectReference Include="..\MiyakoBot.Utility\MiyakoBot.Utility.csproj" />
   </ItemGroup>
 
   <ItemGroup>
