@@ -59,6 +59,14 @@ namespace MiyakoBot.Console
 
         public Application()
         {
+            // Load settings file.
+            _configuration = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.json")
+                .Build();
+
+            _applicationServices.AddSingleton(_configuration);
+
             // Create a custom logger factory.
             // We can't get the logger from the service provider because the service provider hasn't been created yet.
             var loggerFactory = LoggerFactory.Create(logging => {
@@ -74,23 +82,19 @@ namespace MiyakoBot.Console
             // Now we have a logger for Application.
             _logger = loggerFactory.CreateLogger<Application>();
 
-            // Load settings file.
-            _configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.json")
-                .Build();
-
             ConfigureApplicationPartManager();
             ConfigureFeatureProvider();
             ConfigureMessageHandlers();
             ConfigureHttpClients();
 
+            // This for injecting message handlers to adapter.
             _applicationServices.AddSingleton(new MessageHandlerTypeCollection(_messageHandlers));
-
+            // Add adapter as service.
             _applicationServices.AddSingleton<IAdapter, MiraiWebSocketAdapter>();
 
             _applicationServiceProvider = _applicationServices.BuildServiceProvider();
 
+            // Get adapter instance.
             _adapter = _applicationServiceProvider.GetRequiredService<IAdapter>();
         }
 
@@ -140,6 +144,8 @@ namespace MiyakoBot.Console
         /// </summary>
         public void Run()
         {
+            _logger.LogInformation("Starting...");
+
             try
             {
                 _adapter.RunAsync(_cancellationTokenSource.Token)
