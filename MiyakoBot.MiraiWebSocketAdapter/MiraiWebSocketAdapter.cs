@@ -69,65 +69,48 @@ namespace MiyakoBot.Adapter
             }
         }
 
-        void DispatchBotMessage(MessageTypes type, JsonObject dataObject, CancellationToken cancellationToken)
+        List<MethodInfo> LookupMessageHandlers(MessageTypes type)
         {
+            var handlers = new List<MethodInfo>();
+
             foreach (var handlerType in _messageHandlers)
             {
                 var methods = handlerType.GetMethods();
 
-                foreach (var method in methods)
+                foreach (var item in methods)
                 {
-                    var attribute = method.GetCustomAttribute<MessageAttribute>();
+                    var attribute = item.GetCustomAttribute<MessageAttribute>();
 
                     if (attribute != null && attribute.Type == type)
                     {
-                        _logger.LogDebug("Invoke message handler: {}.{}", handlerType.FullName, method.Name);
-
-                        Task.Run(() => {
-                            try
-                            {
-                                var obj = _applicationServiceProvider.GetRequiredService(handlerType);
-                                var args = new object[] { dataObject, cancellationToken };
-                                method.Invoke(obj, args);
-                            }
-                            catch (Exception e)
-                            {
-                                _logger.LogError(e, "Failed to invoke message handler.");
-                            }
-                        }, cancellationToken);
+                        handlers.Add(item);
                     }
                 }
             }
+
+            return handlers;
         }
 
-        void DispatchBotEvent(EventTypes type, JsonObject dataObject, CancellationToken cancellationToken)
+        void DispatchBotMessage(MessageTypes type, JsonObject dataObject, CancellationToken cancellationToken)
         {
-            foreach (var handlerType in _messageHandlers)
+            var handlers = LookupMessageHandlers(type);
+
+            foreach (var item in handlers)
             {
-                var methods = handlerType.GetMethods();
+                _logger.LogDebug("Invoke message handler: {}.{}", item.DeclaringType!.FullName, item.Name);
 
-                foreach (var method in methods)
-                {
-                    var attribute = method.GetCustomAttribute<EventAttribute>();
-
-                    if (attribute != null && attribute.Type == type)
+                Task.Run(() => {
+                    try
                     {
-                        _logger.LogDebug("Invoke event handler: {}.{}", handlerType.FullName, method.Name);
-
-                        Task.Run(() => {
-                            try
-                            {
-                                var obj = _applicationServiceProvider.GetRequiredService(handlerType);
-                                var args = new object[] { dataObject, cancellationToken };
-                                method.Invoke(obj, args);
-                            }
-                            catch (Exception e)
-                            {
-                                _logger.LogError(e, "Failed to invoke event handler.");
-                            }
-                        }, cancellationToken);
+                        var obj = _applicationServiceProvider.GetRequiredService(item.DeclaringType);
+                        var args = new object[] { dataObject, cancellationToken };
+                        item.Invoke(obj, args);
                     }
-                }
+                    catch (Exception e)
+                    {
+                        _logger.LogError(e, "Failed to invoke message handler.");
+                    }
+                }, cancellationToken);
             }
         }
 
@@ -146,15 +129,6 @@ namespace MiyakoBot.Adapter
                 if (messageType != MessageTypes.None)
                 {
                     DispatchBotMessage(messageType, dataObject, cancellationToken);
-                }
-                return;
-            }
-
-            if (Enum.TryParse<EventTypes>(typeString, out var eventType))
-            {
-                if (eventType != EventTypes.None)
-                {
-                    DispatchBotEvent(eventType, dataObject, cancellationToken);
                 }
                 return;
             }
