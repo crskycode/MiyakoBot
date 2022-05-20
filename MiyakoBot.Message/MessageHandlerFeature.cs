@@ -1,6 +1,6 @@
 ﻿using System.Reflection;
 
-namespace MiyakoBot.MessageHandler
+namespace MiyakoBot.Message
 {
     public class MessageHandlerFeature
     {

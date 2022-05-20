@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MiyakoBot.Adapter;
 using MiyakoBot.Http;
-using MiyakoBot.MessageHandler;
+using MiyakoBot.Message;
 using System;
 using System.IO;
 using System.Threading;
@@ -39,6 +39,11 @@ namespace MiyakoBot.Console
             var apm = new ApplicationPartManager();
 
             // Add handler dlls
+            apm.ApplicationParts.Add(new AssemblyPart(typeof(MiyakoBot.Handler.Dummy).Assembly));
+            apm.FeatureProviders.Add(new MessageHandlerFeatureProvider());
+
+            // Add message handlers
+            services.AddMessageHandles(apm);
 
             // Configure application part manager
             services.AddSingleton(typeof(ApplicationPartManager), apm);
@@ -61,7 +66,7 @@ namespace MiyakoBot.Console
 
             // Add Ctrl+C handler
             System.Console.CancelKeyPress += (s, e) => {
-                logger.LogInformation("Shutting down");
+                logger.LogInformation("Shutting down...");
                 cts.Cancel();
                 e.Cancel = true;
             };
@@ -71,7 +76,8 @@ namespace MiyakoBot.Console
                 // Run bot
                 container.GetService<IAdapter>()
                     .RunAsync(cts.Token)
-                    .Wait();
+                    .GetAwaiter()
+                    .GetResult();
             }
             catch (AggregateException e)
             {

@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using System.Reflection;
 
-namespace MiyakoBot.MessageHandler
+namespace MiyakoBot.Message
 {
     public class MessageHandlerFeatureProvider : IApplicationFeatureProvider<MessageHandlerFeature>
     {
@@ -11,7 +11,7 @@ namespace MiyakoBot.MessageHandler
             {
                 foreach (var type in part.Types)
                 {
-                    if (IsController(type) && !feature.Handlers.Contains(type))
+                    if (IsHandler(type) && !feature.Handlers.Contains(type))
                     {
                         feature.Handlers.Add(type);
                     }
@@ -19,7 +19,7 @@ namespace MiyakoBot.MessageHandler
             }
         }
 
-        protected virtual bool IsController(TypeInfo typeInfo)
+        protected virtual bool IsHandler(TypeInfo typeInfo)
         {
             if (!typeInfo.IsClass)
             {

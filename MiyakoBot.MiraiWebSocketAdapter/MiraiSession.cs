@@ -1,12 +1,6 @@
-﻿using MiyakoBot.Http;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using Microsoft.Extensions.Logging;
+using MiyakoBot.Http;
 using System.Text.Json.Nodes;
-using System.Text.Json;
-using Microsoft.Extensions.Logging;
 
 namespace MiyakoBot.Adapter
 {
