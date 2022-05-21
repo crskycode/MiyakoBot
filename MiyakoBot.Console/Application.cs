@@ -152,15 +152,8 @@ namespace MiyakoBot.Console
                     .GetAwaiter()
                     .GetResult();
             }
-            catch (AggregateException e)
+            catch (TaskCanceledException)
             {
-                foreach (var x in e.InnerExceptions)
-                {
-                    if (x.GetType() != typeof(TaskCanceledException))
-                    {
-                        _logger.LogError(x, "Fatal Error");
-                    }
-                }
             }
             catch (Exception e)
             {

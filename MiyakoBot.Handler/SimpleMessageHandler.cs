@@ -1,5 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using MiyakoBot.Message;
+using System.Net.WebSockets;
+using System.Text;
 using System.Text.Json.Nodes;
 
 namespace MiyakoBot.Handler
@@ -15,8 +17,33 @@ namespace MiyakoBot.Handler
         }
 
         [Message(MessageTypes.GroupMessage)]
-        public void OnGroupMessage(JsonObject dataObject, CancellationToken cancellationToken)
+        public async Task OnGroupMessage(ClientWebSocket socket, JsonObject dataObject, CancellationToken cancellationToken)
         {
+            var groupId = (uint?)dataObject["sender"]?["group"]?["id"];
+
+            if (groupId != 201614125)
+            {
+                return;
+            }
+
+            var message = new MessageChainBuilder()
+                .AddPlain("123")
+                .AddPlain("abc")
+                .Build();
+
+            var contentObject = new JsonObject {
+                ["syncId"] = Guid.NewGuid().ToString(),
+                ["command"] = "sendGroupMessage",
+                ["subCommand"] = null,
+                ["content"] = new JsonObject {
+                    ["target"] = groupId,
+                    ["messageChain"] = message.ToJson()
+                }
+            };
+
+            var jsonString = contentObject.ToJsonString();
+            var jsonData = Encoding.UTF8.GetBytes(jsonString);
+            await socket.SendAsync(jsonData, WebSocketMessageType.Text, true, cancellationToken);
         }
     }
 }

@@ -53,19 +53,28 @@ namespace MiyakoBot.Adapter
             return new Uri($"ws://{_settings.WsHost}:{_settings.WsPort}/all?verifyKey={_settings.VerifyKey}&sessionKey={sessionKey}&qq={_settings.QQ}");
         }
 
-        void HandleConnectionMessage(JsonObject dataObject)
+        void HandleConnectionMessage(JsonObject message)
         {
-            var code = (int?)dataObject["code"];
-            var session = (string?)dataObject["session"];
-            var msg = (string?)dataObject["msg"];
+            try
+            {
+                var code = (int?)message["code"];
 
-            if (code == 0 && session != null)
-            {
-                _logger.LogInformation("Connect to mirai successfully.");
+                if (code == 0)
+                {
+                    if (message.ContainsKey("session"))
+                    {
+                        _logger.LogInformation("Connect to mirai successfully.");
+                    }
+                }
+                else
+                {
+                    var msg = (string?)message["msg"] ?? "An unknown error has occurred.";
+                    _logger.LogError("Failed to connect to mirai: {}", msg);
+                }
             }
-            else
+            catch (Exception e)
             {
-                _logger.LogError("Failed to connect to mirai: {}", msg ?? "An unknown error has occurred.");
+                _logger.LogError(e, "Failed to parse message.");
             }
         }
 
@@ -73,15 +82,15 @@ namespace MiyakoBot.Adapter
         {
             var handlers = new List<MethodInfo>();
 
-            foreach (var handlerType in _messageHandlers)
+            foreach (var typeInfo in _messageHandlers)
             {
-                var methods = handlerType.GetMethods();
+                var methods = typeInfo.GetMethods();
 
                 foreach (var item in methods)
                 {
-                    var attribute = item.GetCustomAttribute<MessageAttribute>();
+                    var attr = item.GetCustomAttribute<MessageAttribute>();
 
-                    if (attribute != null && attribute.Type == type)
+                    if (attr?.Type == type)
                     {
                         handlers.Add(item);
                     }
@@ -91,7 +100,7 @@ namespace MiyakoBot.Adapter
             return handlers;
         }
 
-        void DispatchBotMessage(MessageTypes type, JsonObject dataObject, CancellationToken cancellationToken)
+        async Task DispatchMessageToHandlersAsync(MessageTypes type, JsonObject message, CancellationToken cancellationToken)
         {
             var handlers = LookupMessageHandlers(type);
 
@@ -99,77 +108,77 @@ namespace MiyakoBot.Adapter
             {
                 _logger.LogDebug("Invoke message handler: {}.{}", item.DeclaringType!.FullName, item.Name);
 
-                Task.Run(() => {
-                    try
-                    {
-                        var obj = _applicationServiceProvider.GetRequiredService(item.DeclaringType);
-                        var args = new object[] { dataObject, cancellationToken };
-                        item.Invoke(obj, args);
-                    }
-                    catch (Exception e)
-                    {
-                        _logger.LogError(e, "Failed to invoke message handler.");
-                    }
-                }, cancellationToken);
+                // Get a handler instance.
+                var obj = _applicationServiceProvider.GetRequiredService(item.DeclaringType);
+                // Prepare parameters for method.
+                var args = new object[] { _socket, message, cancellationToken };
+
+                if (item.Invoke(obj, args) is Task task)
+                {
+                    await task;
+                }
             }
         }
 
-        void HandleMessage(JsonObject dataObject, CancellationToken cancellationToken)
+        async Task HandleMessageAsync(JsonObject message, CancellationToken cancellationToken)
         {
-            var typeString = (string?)dataObject["type"];
+            var type = message["type"];
 
-            if (string.IsNullOrEmpty(typeString))
+            if (type == null)
             {
-                _logger.LogError("Missing value of message type.");
+                _logger.LogError("Missing 'type' in message content.");
                 return;
             }
 
-            if (Enum.TryParse<MessageTypes>(typeString, out var messageType))
+            if (Enum.TryParse<MessageTypes>(type.ToString(), out var messageType))
             {
                 if (messageType != MessageTypes.None)
                 {
-                    DispatchBotMessage(messageType, dataObject, cancellationToken);
+                    await DispatchMessageToHandlersAsync(messageType, message, cancellationToken);
+                    return;
                 }
-                return;
             }
 
-            _logger.LogWarning("Unhandled message type: {}", typeString);
+            _logger.LogWarning("Message was not handled. Type: {}", type);
         }
 
-        void DispatchMessage(JsonObject message, CancellationToken cancellationToken)
+        async Task DispatchMessageAsync(JsonObject message, CancellationToken cancellationToken)
         {
             try
             {
-                if (!message.ContainsKey("syncId"))
+                var syncId = message["syncId"];
+
+                if (syncId == null)
                 {
                     _logger.LogError("Missing 'syncId' in incoming message.");
                     return;
                 }
 
-                var dataNode = message["data"];
+                var data = message["data"];
 
-                if (dataNode == null)
+                if (data == null)
                 {
                     _logger.LogError("Missing 'data' in incoming message.");
                     return;
                 }
 
-                var dataObject = dataNode.AsObject();
+                var messageBody = data.AsObject();
 
-                if (dataObject.ContainsKey("code"))
+                // This message actively pushed by the server.
+                if (syncId.ToString() == _settings.SyncId)
                 {
-                    if (dataObject.ContainsKey("session") || dataObject.ContainsKey("msg"))
-                    {
-                        HandleConnectionMessage(dataObject);
-                        return;
-                    }
-                }
-
-                if (dataObject.ContainsKey("type"))
-                {
-                    HandleMessage(dataObject, cancellationToken);
+                    await HandleMessageAsync(messageBody, cancellationToken);
                     return;
                 }
+
+                // If syncId is an empty string, the message is connection result.
+                if (syncId.ToString() == string.Empty)
+                {
+                    HandleConnectionMessage(messageBody);
+                    return;
+                }
+
+                _logger.LogWarning("Incoming message was not handled.");
             }
             catch (Exception e)
             {
@@ -200,13 +209,13 @@ namespace MiyakoBot.Adapter
 
                 } while (!result.EndOfMessage);
 
+                if (buffer.Count == 0)
+                {
+                    continue;
+                }
+
                 try
                 {
-                    if (buffer.Count == 0)
-                    {
-                        continue;
-                    }
-
                     var jsonString = Encoding.UTF8.GetString(buffer.ToArray());
 
                     _logger.LogDebug("Message: {}", jsonString);
@@ -215,7 +224,7 @@ namespace MiyakoBot.Adapter
 
                     if (jsonObject != null)
                     {
-                        DispatchMessage(jsonObject.AsObject(), cancellationToken);
+                        await DispatchMessageAsync(jsonObject.AsObject(), cancellationToken);
                     }
                 }
                 catch (JsonException e)
