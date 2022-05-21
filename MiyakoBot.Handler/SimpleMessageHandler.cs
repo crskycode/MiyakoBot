@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 namespace MiyakoBot.Handler
 {
     [MessageHandler]
-    public class SimpleMessageHandler
+    public class SimpleMessageHandler : MessageHandlerBase
     {
         readonly ILogger<SimpleMessageHandler> _logger;
 
@@ -17,7 +17,6 @@ namespace MiyakoBot.Handler
         [Message(MessageTypes.GroupMessage)]
         public void OnGroupMessage(JsonObject dataObject, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Test on group message!!!");
         }
     }
 }
