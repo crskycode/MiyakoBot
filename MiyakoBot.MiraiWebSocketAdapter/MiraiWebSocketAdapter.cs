@@ -20,6 +20,7 @@ namespace MiyakoBot.Adapter
         readonly MessageHandlerTypeCollection _messageHandlers;
         readonly MiraiSession _session;
         readonly ClientWebSocket _socket;
+        readonly Dictionary<>;
 
         public MiraiWebSocketAdapter(
             ILogger<MiraiWebSocketAdapter> logger,
@@ -235,6 +236,27 @@ namespace MiyakoBot.Adapter
                 {
                     _logger.LogError(e, "Failed to deserialize message.");
                 }
+            }
+        }
+
+        async Task SendAsync(JsonObject message, CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested ||
+                _socket.State != WebSocketState.Open)
+            {
+                return;
+            }
+
+            try
+            {
+                var jsonString = message.ToJsonString();
+                var data = Encoding.UTF8.GetBytes(jsonString);
+
+                await _socket.SendAsync(data, WebSocketMessageType.Text, true, cancellationToken);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Failed to send message.");
             }
         }
 
