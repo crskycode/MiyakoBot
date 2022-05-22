@@ -20,7 +20,8 @@ namespace MiyakoBot.Adapter
         readonly MessageHandlerTypeCollection _messageHandlers;
         readonly MiraiSession _session;
         readonly ClientWebSocket _socket;
-        readonly Dictionary<>;
+        readonly Dictionary<Guid, TaskCompletionSource<JsonObject>> _sendMessageTasks = new();
+        readonly object _sendMessageTasksLockObject = new();
 
         public MiraiWebSocketAdapter(
             ILogger<MiraiWebSocketAdapter> logger,
@@ -36,8 +37,7 @@ namespace MiyakoBot.Adapter
             _messageHandlers = messageHandlers;
 
             var sessionLogger = applicationServiceProvider.GetRequiredService<ILogger<MiraiSession>>();
-            var sessionSettings = new MiraiSessionSettings
-            {
+            var sessionSettings = new MiraiSessionSettings {
                 Host = _settings.HttpHost,
                 Port = _settings.HttpPort,
                 VerifyKey = _settings.VerifyKey,
@@ -70,7 +70,7 @@ namespace MiyakoBot.Adapter
                 else
                 {
                     var msg = (string?)message["msg"] ?? "An unknown error has occurred.";
-                    _logger.LogError("Failed to connect to mirai: {}", msg);
+                    _logger.LogError("Failed to connect to mirai: {}:{}", code, msg);
                 }
             }
             catch (Exception e)
@@ -109,14 +109,32 @@ namespace MiyakoBot.Adapter
             {
                 _logger.LogDebug("Invoke message handler: {}.{}", item.DeclaringType!.FullName, item.Name);
 
-                // Get a handler instance.
-                var obj = _applicationServiceProvider.GetRequiredService(item.DeclaringType);
-                // Prepare parameters for method.
-                var args = new object[] { _socket, message, cancellationToken };
-
-                if (item.Invoke(obj, args) is Task task)
+                try
                 {
-                    await task;
+                    var sendAsync = (JsonObject message, CancellationToken ct) => {
+                        return SendAsync(message, ct);
+                    };
+
+                    // Get a handler instance.
+                    var obj = _applicationServiceProvider.GetRequiredService(item.DeclaringType);
+                    // Prepare parameters for method.
+                    var args = new object[] { sendAsync, message, cancellationToken };
+
+                    //if (item.Invoke(obj, args) is Task task)
+                    //{
+                    //    await task;
+                    //}
+
+                    Task.Factory.StartNew(() => {
+                        if (item.Invoke(obj, args) is Task task)
+                        {
+                            task;
+                        }
+                    }, cancellationToken);
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError(e, "Failed to invoke message handler: {}.{}", item.DeclaringType!.FullName, item.Name);
                 }
             }
         }
@@ -163,17 +181,38 @@ namespace MiyakoBot.Adapter
                     return;
                 }
 
+                var sync = syncId.ToString();
                 var messageBody = data.AsObject();
 
                 // This message actively pushed by the server.
-                if (syncId.ToString() == _settings.SyncId)
+                if (sync == _settings.SyncId)
                 {
                     await HandleMessageAsync(messageBody, cancellationToken);
                     return;
                 }
 
+                // This message is a response to an asynchronous request.
+                if (sync.StartsWith("req#"))
+                {
+                    if (Guid.TryParse(sync.AsSpan(4), out var requestId))
+                    {
+                        TaskCompletionSource<JsonObject>? task = null;
+
+                        lock (_sendMessageTasksLockObject)
+                        {
+                            _sendMessageTasks.Remove(requestId, out task);
+                        }
+
+                        if (task != null)
+                        {
+                            task.SetResult(messageBody);
+                            return;
+                        }
+                    }
+                }
+
                 // If syncId is an empty string, the message is connection result.
-                if (syncId.ToString() == string.Empty)
+                if (sync == string.Empty)
                 {
                     HandleConnectionMessage(messageBody);
                     return;
@@ -189,8 +228,8 @@ namespace MiyakoBot.Adapter
 
         async Task ReceiveAsync(CancellationToken cancellationToken)
         {
-            var buffer = new List<byte>(ushort.MaxValue);
-            var block = new byte[ushort.MaxValue];
+            var buffer = new List<byte>(4 * 1024 * 1024);
+            var block = new byte[4 * 1024 * 1024];
 
             while (!cancellationToken.IsCancellationRequested &&
                 _socket.State == WebSocketState.Open)
@@ -239,24 +278,55 @@ namespace MiyakoBot.Adapter
             }
         }
 
-        async Task SendAsync(JsonObject message, CancellationToken cancellationToken)
+        async Task<JsonObject> SendAsync(JsonObject message, CancellationToken cancellationToken)
         {
             if (cancellationToken.IsCancellationRequested ||
                 _socket.State != WebSocketState.Open)
             {
-                return;
+                throw new InvalidOperationException();
             }
 
-            try
-            {
-                var jsonString = message.ToJsonString();
-                var data = Encoding.UTF8.GetBytes(jsonString);
+            // An asynchronous task for this request.
+            TaskCompletionSource<JsonObject> taskCompletionSource;
 
-                await _socket.SendAsync(data, WebSocketMessageType.Text, true, cancellationToken);
-            }
-            catch (Exception e)
+            lock (_sendMessageTasksLockObject)
             {
-                _logger.LogError(e, "Failed to send message.");
+                // Create a request ID, then complete the task when the response is received.
+                var requestId = Guid.NewGuid();
+
+                // Set request ID to message.
+                message["syncId"] = "req#" + requestId.ToString("N");
+
+                // Create the task source object.
+                taskCompletionSource = new(cancellationToken);
+
+                // Add to queue, it will be removed when the task is completed or cancelled.
+                _sendMessageTasks.Add(requestId, taskCompletionSource);
+            }
+
+            // Get json string of the message object.
+            var json = message.ToJsonString();
+
+            _logger.LogDebug("Send message: {}", json);
+
+            // Convert to UTF-8 bytes.
+            var data = Encoding.UTF8.GetBytes(json);
+
+            await _socket.SendAsync(data, WebSocketMessageType.Text, true, cancellationToken);
+
+            return await taskCompletionSource.Task;
+        }
+
+        void CancelAllPendingRequest()
+        {
+            lock (_sendMessageTasksLockObject)
+            {
+                foreach (var kv in _sendMessageTasks)
+                {
+                    kv.Value.TrySetCanceled();
+                }
+
+                _sendMessageTasks.Clear();
             }
         }
 
@@ -276,6 +346,8 @@ namespace MiyakoBot.Adapter
             }
             finally
             {
+                CancelAllPendingRequest();
+
                 await _session.Close();
             }
         }

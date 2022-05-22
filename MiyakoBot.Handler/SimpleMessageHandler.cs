@@ -17,14 +17,9 @@ namespace MiyakoBot.Handler
         }
 
         [Message(MessageTypes.GroupMessage)]
-        public async Task OnGroupMessage(ClientWebSocket socket, JsonObject dataObject, CancellationToken cancellationToken)
+        public async Task OnGroupMessage(Func<JsonObject,CancellationToken,Task<JsonObject>> funcSendAsync, JsonObject dataObject, CancellationToken cancellationToken)
         {
             var groupId = (uint?)dataObject["sender"]?["group"]?["id"];
-
-            if (groupId != 201614125)
-            {
-                return;
-            }
 
             var message = new MessageChainBuilder()
                 .AddPlain("123")
@@ -32,7 +27,6 @@ namespace MiyakoBot.Handler
                 .Build();
 
             var contentObject = new JsonObject {
-                ["syncId"] = Guid.NewGuid().ToString(),
                 ["command"] = "sendGroupMessage",
                 ["subCommand"] = null,
                 ["content"] = new JsonObject {
@@ -41,9 +35,9 @@ namespace MiyakoBot.Handler
                 }
             };
 
-            var jsonString = contentObject.ToJsonString();
-            var jsonData = Encoding.UTF8.GetBytes(jsonString);
-            await socket.SendAsync(jsonData, WebSocketMessageType.Text, true, cancellationToken);
+            var result = await funcSendAsync(contentObject, cancellationToken);
+
+            _logger.LogDebug("Get Message Id: {}", result["messageId"] );
         }
     }
 }
