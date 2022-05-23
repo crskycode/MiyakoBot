@@ -101,7 +101,7 @@ namespace MiyakoBot.Adapter
             return handlers;
         }
 
-        async Task DispatchMessageToHandlersAsync(MessageTypes type, JsonObject message, CancellationToken cancellationToken)
+        void DispatchMessageToHandlersAsync(MessageTypes type, JsonObject message, CancellationToken cancellationToken)
         {
             var handlers = LookupMessageHandlers(type);
 
@@ -111,6 +111,7 @@ namespace MiyakoBot.Adapter
 
                 try
                 {
+                    // For Test
                     var sendAsync = (JsonObject message, CancellationToken ct) => {
                         return SendAsync(message, ct);
                     };
@@ -120,15 +121,10 @@ namespace MiyakoBot.Adapter
                     // Prepare parameters for method.
                     var args = new object[] { sendAsync, message, cancellationToken };
 
-                    //if (item.Invoke(obj, args) is Task task)
-                    //{
-                    //    await task;
-                    //}
-
                     Task.Factory.StartNew(() => {
                         if (item.Invoke(obj, args) is Task task)
                         {
-                            task;
+                            task.GetAwaiter().GetResult();
                         }
                     }, cancellationToken);
                 }
@@ -139,7 +135,7 @@ namespace MiyakoBot.Adapter
             }
         }
 
-        async Task HandleMessageAsync(JsonObject message, CancellationToken cancellationToken)
+        void HandleMessageAsync(JsonObject message, CancellationToken cancellationToken)
         {
             var type = message["type"];
 
@@ -153,7 +149,7 @@ namespace MiyakoBot.Adapter
             {
                 if (messageType != MessageTypes.None)
                 {
-                    await DispatchMessageToHandlersAsync(messageType, message, cancellationToken);
+                    DispatchMessageToHandlersAsync(messageType, message, cancellationToken);
                     return;
                 }
             }
@@ -161,7 +157,7 @@ namespace MiyakoBot.Adapter
             _logger.LogWarning("Message was not handled. Type: {}", type);
         }
 
-        async Task DispatchMessageAsync(JsonObject message, CancellationToken cancellationToken)
+        void DispatchMessageAsync(JsonObject message, CancellationToken cancellationToken)
         {
             try
             {
@@ -187,7 +183,7 @@ namespace MiyakoBot.Adapter
                 // This message actively pushed by the server.
                 if (sync == _settings.SyncId)
                 {
-                    await HandleMessageAsync(messageBody, cancellationToken);
+                    HandleMessageAsync(messageBody, cancellationToken);
                     return;
                 }
 
@@ -264,7 +260,7 @@ namespace MiyakoBot.Adapter
 
                     if (jsonObject != null)
                     {
-                        await DispatchMessageAsync(jsonObject.AsObject(), cancellationToken);
+                        DispatchMessageAsync(jsonObject.AsObject(), cancellationToken);
                     }
                 }
                 catch (JsonException e)
@@ -317,7 +313,7 @@ namespace MiyakoBot.Adapter
             return await taskCompletionSource.Task;
         }
 
-        void CancelAllPendingRequest()
+        void CancelAllPendingRequests()
         {
             lock (_sendMessageTasksLockObject)
             {
@@ -346,7 +342,7 @@ namespace MiyakoBot.Adapter
             }
             finally
             {
-                CancelAllPendingRequest();
+                CancelAllPendingRequests();
 
                 await _session.Close();
             }
