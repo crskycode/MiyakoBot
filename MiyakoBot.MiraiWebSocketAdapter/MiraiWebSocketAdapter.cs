@@ -20,8 +20,8 @@ namespace MiyakoBot.Adapter
         readonly MessageHandlerTypeCollection _messageHandlers;
         readonly MiraiSession _session;
         readonly ClientWebSocket _socket;
-        readonly Dictionary<Guid, TaskCompletionSource<JsonObject>> _sendMessageTasks = new();
-        readonly object _sendMessageTasksLockObject = new();
+        readonly Dictionary<Guid, TaskCompletionSource<JsonObject>> _pendingRequestQueue = new();
+        readonly object _pendingRequestQueueLockObject = new();
 
         public MiraiWebSocketAdapter(
             ILogger<MiraiWebSocketAdapter> logger,
@@ -101,8 +101,9 @@ namespace MiyakoBot.Adapter
             return handlers;
         }
 
-        void DispatchMessageToHandlersAsync(MessageTypes type, JsonObject message, CancellationToken cancellationToken)
+        void DispatchMessageToHandlers(MessageTypes type, JsonObject message, CancellationToken cancellationToken)
         {
+            // TODO: Add cache.
             var handlers = LookupMessageHandlers(type);
 
             foreach (var item in handlers)
@@ -111,16 +112,31 @@ namespace MiyakoBot.Adapter
 
                 try
                 {
-                    // For Test
-                    var sendAsync = (JsonObject message, CancellationToken ct) => {
-                        return SendAsync(message, ct);
-                    };
-
                     // Get a handler instance.
                     var obj = _applicationServiceProvider.GetRequiredService(item.DeclaringType);
-                    // Prepare parameters for method.
-                    var args = new object[] { sendAsync, message, cancellationToken };
 
+                    // Provides a method that allow the handler to send messages.
+                    var socketSendAsync = (JsonObject msg, CancellationToken ct) => {
+                        return SendAsync(msg, ct);
+                    };
+
+                    // Assign to handler instance.
+                    var propSendAsync = obj.GetType().GetProperty("SocketSendAsync");
+
+                    if (propSendAsync != null)
+                    {
+                        propSendAsync.SetValue(obj, socketSendAsync);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("The message handler object '{}' does not inherit from '{}'", item.DeclaringType!.FullName, nameof(MessageHandlerBase));
+                    }
+
+                    // Prepare parameters for method.
+                    var args = new object[] { message, cancellationToken };
+
+                    // Invoke the handler in a new thread.
+                    // Do not block the execution of the handler.
                     Task.Factory.StartNew(() => {
                         if (item.Invoke(obj, args) is Task task)
                         {
@@ -135,7 +151,7 @@ namespace MiyakoBot.Adapter
             }
         }
 
-        void HandleMessageAsync(JsonObject message, CancellationToken cancellationToken)
+        void HandleMessage(JsonObject message, CancellationToken cancellationToken)
         {
             var type = message["type"];
 
@@ -149,7 +165,7 @@ namespace MiyakoBot.Adapter
             {
                 if (messageType != MessageTypes.None)
                 {
-                    DispatchMessageToHandlersAsync(messageType, message, cancellationToken);
+                    DispatchMessageToHandlers(messageType, message, cancellationToken);
                     return;
                 }
             }
@@ -157,7 +173,7 @@ namespace MiyakoBot.Adapter
             _logger.LogWarning("Message was not handled. Type: {}", type);
         }
 
-        void DispatchMessageAsync(JsonObject message, CancellationToken cancellationToken)
+        void DispatchMessage(JsonObject message, CancellationToken cancellationToken)
         {
             try
             {
@@ -183,7 +199,7 @@ namespace MiyakoBot.Adapter
                 // This message actively pushed by the server.
                 if (sync == _settings.SyncId)
                 {
-                    HandleMessageAsync(messageBody, cancellationToken);
+                    HandleMessage(messageBody, cancellationToken);
                     return;
                 }
 
@@ -194,9 +210,9 @@ namespace MiyakoBot.Adapter
                     {
                         TaskCompletionSource<JsonObject>? task = null;
 
-                        lock (_sendMessageTasksLockObject)
+                        lock (_pendingRequestQueueLockObject)
                         {
-                            _sendMessageTasks.Remove(requestId, out task);
+                            _pendingRequestQueue.Remove(requestId, out task);
                         }
 
                         if (task != null)
@@ -260,7 +276,7 @@ namespace MiyakoBot.Adapter
 
                     if (jsonObject != null)
                     {
-                        DispatchMessageAsync(jsonObject.AsObject(), cancellationToken);
+                        DispatchMessage(jsonObject.AsObject(), cancellationToken);
                     }
                 }
                 catch (JsonException e)
@@ -285,7 +301,7 @@ namespace MiyakoBot.Adapter
             // An asynchronous task for this request.
             TaskCompletionSource<JsonObject> taskCompletionSource;
 
-            lock (_sendMessageTasksLockObject)
+            lock (_pendingRequestQueueLockObject)
             {
                 // Create a request ID, then complete the task when the response is received.
                 var requestId = Guid.NewGuid();
@@ -297,7 +313,7 @@ namespace MiyakoBot.Adapter
                 taskCompletionSource = new(cancellationToken);
 
                 // Add to queue, it will be removed when the task is completed or cancelled.
-                _sendMessageTasks.Add(requestId, taskCompletionSource);
+                _pendingRequestQueue.Add(requestId, taskCompletionSource);
             }
 
             // Get json string of the message object.
@@ -315,14 +331,14 @@ namespace MiyakoBot.Adapter
 
         void CancelAllPendingRequests()
         {
-            lock (_sendMessageTasksLockObject)
+            lock (_pendingRequestQueueLockObject)
             {
-                foreach (var kv in _sendMessageTasks)
+                foreach (var kv in _pendingRequestQueue)
                 {
                     kv.Value.TrySetCanceled();
                 }
 
-                _sendMessageTasks.Clear();
+                _pendingRequestQueue.Clear();
             }
         }
 
