@@ -16,5 +16,30 @@ namespace MiyakoBot.Message
         {
             return _object;
         }
+
+        public override string ToString()
+        {
+            if (_object == null)
+            {
+                return string.Empty;
+            }
+
+            var text = string.Empty;
+
+            foreach (var e in _object)
+            {
+                if (e == null)
+                {
+                    continue;
+                }
+
+                if (e["type"]?.ToString() == "Plain")
+                {
+                    text += e["text"]?.ToString() ?? string.Empty;
+                }
+            }
+
+            return text;
+        }
     }
 }
